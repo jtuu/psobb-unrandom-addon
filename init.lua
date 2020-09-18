@@ -2,18 +2,29 @@ local solylib = require("solylib")
 solylib.characters = require("solylib.characters")
 
 local ATTACK_TYPE = {
-    N = 1,
-    H = 2,
-    S = 3
+    N = 0,
+    H = 1,
+    S = 2
 }
 
-local function ata_multiplier(attack_type)
+local COMBO_STEP = {
+    First = 0,
+    Second = 1,
+    Third = 2
+}
+
+local function ata_multiplier(attack_type, combo_step)
     local t = {
         [ATTACK_TYPE.N] = 1.0,
         [ATTACK_TYPE.H] = 0.7,
         [ATTACK_TYPE.S] = 0.5
     }
-    return t[attack_type]
+    local c = {
+        [COMBO_STEP.First] = 1.0,
+        [COMBO_STEP.Second] = 1.3,
+        [COMBO_STEP.Third] = 1.69,
+    }
+    return t[attack_type] * c[combo_step]
 end
 
 local function current_scene()
@@ -271,7 +282,13 @@ local function character_is_ranger(player_ptr)
 end
 
 local function smartlink_buff_active(player_ptr)
-    return pso.read_u16(pso.read_u32(player_ptr + 0x324) + 3 * 2) ~= 0
+    local flags_ptr = pso.read_u32(player_ptr + 0x324)
+
+    if flags_ptr == 0 then
+        return false
+    end
+
+    return pso.read_u16(flags + 3 * 2) ~= 0
 end
 
 local function evp(entity_ptr)
@@ -280,6 +297,24 @@ end
 
 local function total_ata(entity_ptr)
     return pso.read_u16(entity_ptr + 0x2d4)
+end
+
+local function is_attacking(player_ptr)
+    return pso.read_i16(player_ptr + 0x8be) ~= -1
+end
+
+local function next_combo_step(player_ptr)
+    if not is_attacking(player_ptr) then
+        return COMBO_STEP.First
+    end
+
+    local next_step = pso.read_u32(player_ptr + 0x8b4) + 1
+
+    if next_step > COMBO_STEP.Third then
+        return COMBO_STEP.Third
+    end
+
+    return next_step
 end
 
 local function will_hit_enemy_ranged(player_ptr, enemy_ptr, ata_multiplier)
@@ -306,7 +341,7 @@ local function will_hit_enemy(attack_type)
         return false
     end
 
-    local ata_multiplier = ata_multiplier(attack_type)
+    local ata_multiplier = ata_multiplier(attack_type, next_combo_step(player_ptr))
 
     return will_hit_enemy_ranged(player_ptr, target_ptr, ata_multiplier)
 end
@@ -338,7 +373,7 @@ end
 
 local function present()
     if imgui.Begin("unrandom", nil, {}) then
-        imgui.Text("Attack will hit?")
+        imgui.Text("Next attack will hit?")
         imgui.Text("N: " .. tostring(will_hit_enemy(ATTACK_TYPE.N)))
         imgui.Text("H: " .. tostring(will_hit_enemy(ATTACK_TYPE.H)))
         imgui.Text("S: " .. tostring(will_hit_enemy(ATTACK_TYPE.S)))
