@@ -393,6 +393,14 @@ local function weapon(player_ptr)
     return pso.read_u32(player_ptr + 0xdf8 + 0x18)
 end
 
+local function weapon_special_has_hard_accuracy(weapon_ptr)
+    return bit.band(pso.read_u32(weapon_ptr + 0x1dc), 0x20) ~=0
+end
+
+local function weapon_is_ranged(weapon_ptr)
+    return bit.band(pso.read_u32(weapon_ptr + 0x1dc), 0x20000) == 0
+end
+
 local function item_id(item_ptr)
     local bytes = {}
     pso.read_mem(bytes, item_ptr + 0xf1, 4)
@@ -520,28 +528,12 @@ local function special_attack_will_activate_against_enemy(player_ptr, enemy_ptr,
         end
 
         -- not sure what this is
-        if entity_index(entity_ptr) < 0x1000 then
+        if entity_index(enemy_ptr) < 0x1000 then
             return false
         end
 
         return random < 0.5
     end
-end
-
-local function ranged_attack_will_hit_enemy(player_ptr, enemy_ptr, ata_multiplier, rng)
-    rng = rng or EntityRng:new(enemy_ptr)
-
-    local hit_chance = (evp(enemy_ptr) * -0.2 + total_ata(player_ptr) * ata_multiplier) * 0.01
-
-    if not character_is_ranger(player_ptr) and not smartlink_buff_active(player_ptr) then
-        hit_chance = hit_chance - entity_horizontal_distance(player_ptr, enemy_ptr) * 0.01 * 0.33333334
-    end
-
-    if hit_chance <= 0.0 then
-        return false
-    end
-
-    return rng:next_float() <= hit_chance
 end
 
 local function attack_will_hit_enemy(attack_type)
@@ -557,11 +549,31 @@ local function attack_will_hit_enemy(attack_type)
         return false
     end
 
-    local ata_multiplier = ata_multiplier(attack_type, next_combo_step(player_ptr))
+    local effective_attack_type = attack_type
+
+    if attack_type == ATTACK_TYPE.S and weapon_special_has_hard_accuracy(weapon(player_ptr)) then
+        effective_attack_type = ATTACK_TYPE.H
+    end
+
+    local ata_multiplier = ata_multiplier(effective_attack_type, next_combo_step(player_ptr))
 
     local rng = FakeRng:from_entity(target_ptr)
 
-    if ranged_attack_will_hit_enemy(player_ptr, target_ptr, ata_multiplier, rng) then
+    local hit_chance = (evp(target_ptr) * -0.2 + total_ata(player_ptr) * ata_multiplier) * 0.01
+
+    if weapon_is_ranged(weapon(player_ptr)) then
+        if not character_is_ranger(player_ptr) and not smartlink_buff_active(player_ptr) then
+            hit_chance = hit_chance - entity_horizontal_distance(player_ptr, target_ptr) * 0.01 * 0.33333334
+        end
+    end
+
+    if hit_chance <= 0.0 then
+        return false
+    end
+
+    -- do accuracy check
+    if rng:next_float() <= hit_chance then
+        -- check special activation if needed
         if attack_type == ATTACK_TYPE.S then
             local special_type = weapon_special_attack_type(player_ptr)
             return special_attack_will_activate_against_enemy(player_ptr, target_ptr, special_type, rng)
