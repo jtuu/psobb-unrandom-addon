@@ -37,6 +37,32 @@ local DIFFICULTY = {
     U = 3
 }
 
+local TECHNIQUE = {
+    FOIE = 0x0,
+    GIFOIE = 0x1,
+    RAFOIE = 0x2,
+    BARTA = 0x3,
+    GIBARTA = 0x4,
+    RABARTA = 0x5,
+    ZONDE = 0x6,
+    GIZONDE = 0x7,
+    RAZONDE = 0x8,
+    GRANTS = 0x9,
+    DEBAND = 0xa,
+    JELLEN = 0xb,
+    ZALURE = 0xc,
+    SHIFTA = 0xd,
+    RYUKER = 0xe,
+    RESTA = 0xf,
+    ANTI = 0x10,
+    REVERSER = 0x11,
+    MEGID = 0x12
+}
+
+local function technique_power(tech)
+    return pso.read_f32(0x009cf3c0 + tech * 0x2c)
+end
+
 local function ata_multiplier(attack_type, combo_step)
     local t = {
         [ATTACK_TYPE.N] = 1.0,
@@ -585,12 +611,32 @@ local function attack_will_hit_enemy(attack_type)
     return false
 end
 
+local function tech_will_freeze_enemy(tech)
+    local power = technique_power(tech)
+    
+    local target_ptr = target_entity_ptr()
+
+    if target_ptr == 0 then
+        return false
+    end
+
+    local freeze_chance = ((-250 + power) * 0.025 + 5) * 0.025
+    if difficulty() == DIFFICULTY.U and freeze_chance > 0.2 then
+        freeze_chance = 0.2
+    end
+
+    local rng = FakeRng:from_entity(target_ptr)
+    rng:next_float() -- skip first
+    return rng:next_float() < freeze_chance
+end
+
 local function present()
     if imgui.Begin("unrandom", nil, {}) then
         imgui.Text("Next attack will hit?")
         imgui.Text("N: " .. tostring(attack_will_hit_enemy(ATTACK_TYPE.N)))
         imgui.Text("H: " .. tostring(attack_will_hit_enemy(ATTACK_TYPE.H)))
         imgui.Text("S: " .. tostring(attack_will_hit_enemy(ATTACK_TYPE.S)))
+        imgui.Text("Rabarta: " .. tostring(tech_will_freeze_enemy(TECHNIQUE.RABARTA)))
     end
     imgui.End()
 end
